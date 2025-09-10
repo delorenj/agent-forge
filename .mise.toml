@@ -1,0 +1,6 @@
+[tools]
+python = "3.13.2"
+uv = "latest"
+
+[hooks]
+enter = "zsh .mise/scripts/env.sh"
