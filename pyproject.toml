@@ -4,4 +4,13 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "agno>=2.0.2",
+    "fastapi[standard]>=0.116.1",
+    "mcp>=1.13.1",
+    "openai>=1.107.0",
+    "openrouter>=1.0",
+    "sqlalchemy>=2.0.43",
+    "lancedb>=0.16.0",
+    "pydantic>=2.0.0",
+]
