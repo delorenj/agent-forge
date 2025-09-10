@@ -1,39 +1,55 @@
 # Task
 
 **Main Goal**:
-Implement the Agno Agent System described in ./PRD.md
+Implement a CLI interface that passes the provided acceptance criteria
 
-**Instructions**:
+## Test Inputs
 
-1. Read the PRD.md file to understand the requirements and specifications of the Agno Agent System.
-  - The PRD contains a detailed roster of agent descriptions to guide the implementation.
+**Input 1**
+*Simple query*
+```sh
+agentforge "I need a team fine tuned to convert python scripts to idiomatic rust scripts"
+```
 
-2. Create the root Orchestrator agent that will manage and coordinate the other agents.
-  - Ensure the Orchestrator has a deep knowledge and understandign of the Agno Agent System and access to the agno documentation mcp server
+**Input 2**
+*File for context*
+```sh
+agentforge -f /path/to/prd.md --agents /path/to/agents/folder/
+```
 
-3. Create the individual agents as described in the PRD.md file.
-  - Each agent should have a specific role and functionality as outlined in the PRD.
-  - Ensure that each agent can communicate effectively with the Orchestrator and other agents as needed
+**Input 3**
+*Only make a single agent and manually name it*
+```sh
+agentforge -f /path/to/task.md -n1 --name "Billy Cheemo"
+```
 
-4. Spin up the all the agents, including the Orchestrator and hand over control to the Orchestrator.
+**Input 4**
+*Force create all agents - skip the cross-check for existing ones and output to  `./agents/` folder*
+```sh
+agentforge -f /path/to/task.md --force -n3 -o ./agents/
+```
 
----
+**Input 5**
+*Name Strategy*:
+- domain (i.e. DocumentationExpert)
+- real (i.e. random real name Bill Thomlinson)
+```sh
+agentforge -f /path/to/task.md --auto-name-strategy "[domain|real]"
+```
 
-5. [Orchestrator] Break down the implementation into manageable tasks and create a project plan.
-  - Ensure each task is clearly defined and assigned to the appropriate agent.
-  - Each task should have a clear objective and deliverable.
-  - The deliverables should all be in markdown format.
-  - Each deliverable should have a clear set of quantifiable acceptance criteria.
-  - Each deliverable should be delivered first to the Orchestrator for review before being propagated to the next agent that needs it. If the deliverable is not accepted, it should be sent back to the agent that created it with clear feedback on what needs to be improved or changed.
+**Input 6**
+*Name Strategy*
+- custom rule file
+```sh
+agentforge -f /path/to/task.md --auto-name-rules /path/to/naming-rules.md
+```
 
-6. [Orchestrator] Monitor the progress of each agent and ensure that they are on track to meet their deadlines.
-  - Provide support and guidance as needed
-  - Make sure to showcase features as they are completed by prompting the user with human-in-to-loop messages to ensure alignment with the overall vision of the Agno Agent System.
-
-*Continue to repeat steps 5 and 6 until all tasks are completed and all deliverables are accepted.*
-
----
-
-7. Invoke the Documentation agent to generate the documentation for the Agno Agent System.
-  - Ensure that all code is well-documented and follows best practices.
-  - Create a comprehensive README file that explains how to set up and use the Agno Agent System.
+## Acceptance Criteria
+1. All 6 command above are run without error
+2. Agents are created successfully with appropriate specializations based on the input context
+3. Agent names follow the specified naming strategy (manual, domain-based, real person, or custom rules)
+4. Agents are output to the correct directory when `-o` flag is specified
+5. The `--force` flag successfully creates agents without checking for existing ones
+6. File context is properly parsed and used when `-f` flag is provided
+7. The agents folder is properly utilized when `--agents` flag is specified
+8. Generated agents are functional and can be imported/used by the system 
