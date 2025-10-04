@@ -54,10 +54,11 @@ def convert_letta_to_agentforge(letta_file_path: str, output_path: str = None) -
                 code=tool.get('source_code')
             ))
     
-    # Convert memory blocks
+    # Convert memory blocks and extract persona description
     blocks_data = letta_data.get('blocks', [])
     blocks_map = {block['id']: block for block in blocks_data}
-    
+
+    persona_description = None
     converted_memory_blocks = []
     for block_id in main_agent.get('block_ids', []):
         if block_id in blocks_map:
@@ -67,6 +68,14 @@ def convert_letta_to_agentforge(letta_file_path: str, output_path: str = None) -
                 value=block['value'],
                 limit=block.get('limit')
             ))
+
+            # Extract description from persona block for richer agent description
+            if block['label'] == 'persona' and block.get('value'):
+                # Take first few lines of persona as description
+                persona_lines = block['value'].split('\n')
+                meaningful_lines = [line.strip() for line in persona_lines if line.strip() and not line.strip().startswith('#') and not line.strip().startswith('Line')]
+                if meaningful_lines:
+                    persona_description = ' '.join(meaningful_lines[:3])  # First 3 meaningful lines
     
     # Convert LLM config
     llm_config_data = main_agent.get('llm_config', {})
@@ -97,10 +106,15 @@ def convert_letta_to_agentforge(letta_file_path: str, output_path: str = None) -
                 timestamp=message.get('created_at')
             ))
     
-    # Create AgentFile
+    # Create AgentFile with enhanced description from persona
+    agent_description = main_agent.get('description', 'Agent imported from Letta')
+    if persona_description:
+        # Use persona description as primary, fall back to agent description
+        agent_description = persona_description
+
     agent_file = AgentFile(
         name=main_agent.get('name', 'Imported Agent'),
-        description=main_agent.get('description', 'Agent imported from Letta'),
+        description=agent_description,
         llm_config=converted_llm_config,
         system_prompt=main_agent.get('system', ''),
         memory_blocks=converted_memory_blocks,
@@ -111,7 +125,8 @@ def convert_letta_to_agentforge(letta_file_path: str, output_path: str = None) -
             'original_id': main_agent.get('id'),
             'agent_type': main_agent.get('agent_type'),
             'imported_at': datetime.utcnow().isoformat(),
-            'original_export_created_at': letta_data.get('created_at')
+            'original_export_created_at': letta_data.get('created_at'),
+            'original_description': main_agent.get('description')  # Preserve original
         }
     )
     
