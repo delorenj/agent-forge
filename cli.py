@@ -19,6 +19,16 @@ from rich.prompt import Prompt, Confirm
 import asyncio
 import json
 from datetime import datetime
+import sys
+import importlib.util
+
+# Import agentfile serialization
+try:
+    from agentfile import AgentFileSerializer, save_agent, load_agent, AgentFile
+    AGENTFILE_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: AgentFile serialization not available: {e}")
+    AGENTFILE_AVAILABLE = False
 
 # Try to import the agent modules, with fallbacks for missing functionality
 try:
@@ -95,7 +105,8 @@ app = typer.Typer(
     name="agentforge",
     help="AgentForge - Meta-agent system for building specialized agent teams",
     add_completion=False,
-    rich_markup_mode="rich"
+    rich_markup_mode="rich",
+    invoke_without_command=True
 )
 
 console = Console()
@@ -342,6 +353,22 @@ def display_results(results: dict):
             console.print(agent_panel)
 
 
+@app.callback()
+def callback(
+    ctx: typer.Context,
+    version: bool = typer.Option(False, "-v", "--version", help="Show version information")
+):
+    """AgentForge - Meta-agent system for building specialized agent teams"""
+    if version:
+        rprint("[bold blue]AgentForge v0.1.0[/bold blue]")
+        raise typer.Exit(0)
+
+    # Show help if no command provided
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        raise typer.Exit(0)
+
+
 @app.command()
 def main(
     query: Optional[str] = typer.Argument(None, help="Goal description for agent team generation"),
@@ -356,14 +383,14 @@ def main(
 ):
     """
     AgentForge - Generate specialized agent teams for any goal.
-    
+
     Examples:
-      agentforge "I need a team for web development"
-      agentforge -f requirements.md --agents ./my_agents/
-      agentforge -f task.md -n1 --name "Billy Cheemo"
-      agentforge -f prd.md --force -n3 -o ./agents/
+      agentforge main "I need a team for web development"
+      agentforge main -f requirements.md --agents ./my_agents/
+      agentforge main -f task.md -n1 --name "Billy Cheemo"
+      agentforge main -f prd.md --force -n3 -o ./agents/
     """
-    
+
     try:
         # Validate arguments
         if not query and not file:
@@ -548,14 +575,339 @@ def version():
 
 
 @app.command()
+def roster(
+    agents_path: Optional[str] = typer.Option(None, "--agents", help="Path to agents directory"),
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Show detailed information")
+):
+    """List available agents with their descriptions and capabilities."""
+
+    # Determine agents path
+    if agents_path:
+        agents_dir = Path(agents_path)
+    else:
+        agents_dir = Path(__file__).parent / "agents"
+
+    if not agents_dir.exists():
+        rprint(f"[red]Error: Agents directory not found: {agents_dir}[/red]")
+        raise typer.Exit(1)
+
+    # Agent metadata - extracted from the actual codebase
+    agent_registry = {
+        "SystemsAnalyst": {
+            "file": "systems_analyst.py",
+            "description": "Expert in decomposing complex goals into discrete roles and capabilities",
+            "role": "Strategist",
+            "capabilities": ["Goal Decomposition", "Role Definition", "Team Structure", "Strategy Documents"]
+        },
+        "EngineeringManager": {
+            "file": "engineering_manager.py",
+            "description": "Orchestrates the entire AgentForge workflow and coordinates meta-agents",
+            "role": "Orchestrator",
+            "capabilities": ["Workflow Management", "Agent Coordination", "Resource Allocation"]
+        },
+        "TalentScout": {
+            "file": "talent_scout.py",
+            "description": "Searches and matches existing agents against required capabilities",
+            "role": "Agent Matcher",
+            "capabilities": ["Vector Search", "Agent Matching", "Capability Analysis", "QDrant Integration"]
+        },
+        "AgentDeveloper": {
+            "file": "agent_developer.py",
+            "description": "Creates new specialized agents to fill capability gaps",
+            "role": "Agent Creator",
+            "capabilities": ["Code Generation", "Agent Scaffolding", "Template Application"]
+        },
+        "IntegrationArchitect": {
+            "file": "integration_architect.py",
+            "description": "Assembles final agent teams and configures communication patterns",
+            "role": "Team Assembler",
+            "capabilities": ["Team Assembly", "Communication Setup", "Integration Planning"]
+        },
+        "FormatAdaptationExpert": {
+            "file": "format_adaptation_expert.py",
+            "description": "Adapts agents between different formats and frameworks",
+            "role": "Format Converter",
+            "capabilities": ["Format Conversion", "Framework Adaptation", "Agent Translation"]
+        },
+        "MasterTemplater": {
+            "file": "master_templater.py",
+            "description": "Creates reusable agent templates from specific implementations",
+            "role": "Template Creator",
+            "capabilities": ["Template Generation", "Generalization", "Pattern Extraction"]
+        }
+    }
+
+    # Create roster table
+    table = Table(title="🤖 AgentForge Agent Roster", show_header=True, header_style="bold magenta")
+    table.add_column("Agent", style="cyan", width=25)
+    table.add_column("Role", style="green", width=20)
+    table.add_column("Description", style="white", width=50)
+
+    if verbose:
+        table.add_column("Capabilities", style="yellow", width=40)
+
+    # Add agents to table
+    for agent_name, info in agent_registry.items():
+        agent_file = agents_dir / info["file"]
+        status_icon = "✓" if agent_file.exists() else "✗"
+
+        if verbose:
+            caps = ", ".join(info["capabilities"][:3])
+            if len(info["capabilities"]) > 3:
+                caps += f" (+{len(info['capabilities'])-3} more)"
+            table.add_row(
+                f"{status_icon} {agent_name}",
+                info["role"],
+                info["description"],
+                caps
+            )
+        else:
+            table.add_row(
+                f"{status_icon} {agent_name}",
+                info["role"],
+                info["description"]
+            )
+
+    console.print(table)
+
+    # Summary
+    total_agents = len(agent_registry)
+    available_agents = sum(1 for info in agent_registry.values() if (agents_dir / info["file"]).exists())
+
+    summary = f"\n[bold]Summary:[/bold] {available_agents}/{total_agents} agents available"
+    if agents_path:
+        summary += f" in {agents_dir}"
+
+    rprint(summary)
+
+    if verbose:
+        rprint("\n[dim]Use --agents <path> to scan a different directory[/dim]")
+
+
+@app.command()
+def export(
+    agent_name: str = typer.Argument(..., help="Name of agent to export"),
+    output: str = typer.Option(None, "-o", "--output", help="Output file path (.af extension)"),
+    agents_path: Optional[str] = typer.Option(None, "--agents", help="Path to agents directory")
+):
+    """Export an agent to Letta agentfile (.af) format."""
+
+    if not AGENTFILE_AVAILABLE:
+        rprint("[red]Error: AgentFile serialization not available. Check agentfile.py import.[/red]")
+        raise typer.Exit(1)
+
+    # Determine agents path
+    if agents_path:
+        agents_dir = Path(agents_path)
+    else:
+        agents_dir = Path(__file__).parent / "agents"
+
+    # Find agent module
+    agent_file = agents_dir / f"{agent_name.lower().replace('_', '_')}.py"
+    if not agent_file.exists():
+        # Try common variations
+        variations = [
+            f"{agent_name}.py",
+            f"{agent_name.lower()}.py",
+            f"{agent_name}_agent.py"
+        ]
+        for var in variations:
+            test_path = agents_dir / var
+            if test_path.exists():
+                agent_file = test_path
+                break
+        else:
+            rprint(f"[red]Error: Agent file not found for '{agent_name}'[/red]")
+            rprint(f"[dim]Searched in: {agents_dir}[/dim]")
+            raise typer.Exit(1)
+
+    # Create mock agent data for export (since we can't easily instantiate agents)
+    agent_data = {
+        "name": agent_name,
+        "description": f"AgentForge {agent_name} agent",
+        "model": "anthropic/claude-3.5-sonnet",
+        "system_prompt": f"You are a {agent_name} agent specialized in your domain.",
+        "memory_blocks": [
+            {"label": "persona", "value": f"{agent_name} expert agent"},
+            {"label": "context", "value": "AgentForge meta-agent system"}
+        ],
+        "tools": [],
+        "messages": [],
+        "metadata": {
+            "source": "agentforge",
+            "agent_type": agent_name,
+            "source_file": str(agent_file)
+        }
+    }
+
+    # Determine output path
+    if not output:
+        output = f"{agent_name.lower()}.af"
+
+    serializer = AgentFileSerializer()
+    output_path = serializer.serialize(agent_data, output)
+
+    rprint(f"[green]✓[/green] Agent exported to: {output_path}")
+    rprint(f"[dim]Format: Letta AgentFile (.af)[/dim]")
+
+
+@app.command()
+def import_agent(
+    file: str = typer.Argument(..., help="Path to .af file to import"),
+    output_dir: Optional[str] = typer.Option(None, "-o", "--output", help="Output directory for agent")
+):
+    """Import an agent from Letta agentfile (.af) format."""
+
+    if not AGENTFILE_AVAILABLE:
+        rprint("[red]Error: AgentFile serialization not available. Check agentfile.py import.[/red]")
+        raise typer.Exit(1)
+
+    file_path = Path(file)
+    if not file_path.exists():
+        rprint(f"[red]Error: File not found: {file}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        agent_config = load_agent(str(file_path))
+
+        # Display imported agent info
+        info_panel = Panel(
+            f"[bold]Name:[/bold] {agent_config['name']}\n"
+            f"[bold]Description:[/bold] {agent_config['description']}\n"
+            f"[bold]Model:[/bold] {agent_config['model']}\n"
+            f"[bold]Tools:[/bold] {len(agent_config['tools'])}\n"
+            f"[bold]Memory Blocks:[/bold] {len(agent_config.get('memory', {}))}",
+            title="[bold green]Imported Agent[/bold green]",
+            border_style="green"
+        )
+        console.print(info_panel)
+
+        # Save configuration
+        if output_dir:
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            config_file = output_path / f"{agent_config['name'].lower()}_config.json"
+            with open(config_file, 'w') as f:
+                json.dump(agent_config, f, indent=2)
+            rprint(f"\n[green]✓[/green] Configuration saved to: {config_file}")
+
+    except Exception as e:
+        rprint(f"[red]Error importing agent: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
+def interactive(
+    mode: str = typer.Option("create", "--mode", help="Mode: 'create' or 'configure'")
+):
+    """Interactive mode for creating and configuring agents."""
+
+    rprint("[bold blue]🤖 AgentForge Interactive Mode[/bold blue]\n")
+
+    if mode == "create":
+        # Interactive agent creation
+        rprint("[bold]Let's create a new agent![/bold]\n")
+
+        # Gather agent details
+        agent_name = Prompt.ask("[cyan]Agent name[/cyan]")
+        agent_role = Prompt.ask("[cyan]Agent role/specialty[/cyan]")
+        agent_description = Prompt.ask("[cyan]Brief description[/cyan]")
+
+        # Capabilities
+        rprint("\n[bold]Capabilities (one per line, empty line to finish):[/bold]")
+        capabilities = []
+        while True:
+            cap = Prompt.ask(f"[cyan]Capability {len(capabilities)+1}[/cyan]", default="")
+            if not cap:
+                break
+            capabilities.append(cap)
+
+        # Model selection
+        models = [
+            "anthropic/claude-3.5-sonnet",
+            "anthropic/claude-3-opus",
+            "openai/gpt-4",
+            "openai/gpt-4-turbo"
+        ]
+        rprint("\n[bold]Available models:[/bold]")
+        for i, model in enumerate(models, 1):
+            rprint(f"  {i}. {model}")
+
+        model_choice = Prompt.ask("[cyan]Select model[/cyan]", choices=[str(i) for i in range(1, len(models)+1)], default="1")
+        selected_model = models[int(model_choice)-1]
+
+        # System prompt
+        system_prompt = Prompt.ask(
+            "[cyan]System prompt[/cyan]",
+            default=f"You are {agent_name}, a {agent_role} specialized in helping users with specific tasks."
+        )
+
+        # Create agent configuration
+        agent_config = {
+            "name": agent_name,
+            "role": agent_role,
+            "description": agent_description,
+            "capabilities": capabilities,
+            "model": selected_model,
+            "system_prompt": system_prompt,
+            "memory_blocks": [
+                {"label": "persona", "value": f"{agent_name} - {agent_role}"},
+                {"label": "capabilities", "value": ", ".join(capabilities)}
+            ],
+            "tools": [],
+            "metadata": {
+                "created_via": "interactive_mode",
+                "created_at": datetime.utcnow().isoformat()
+            }
+        }
+
+        # Display configuration
+        config_panel = Panel(
+            f"[bold]Name:[/bold] {agent_name}\n"
+            f"[bold]Role:[/bold] {agent_role}\n"
+            f"[bold]Description:[/bold] {agent_description}\n"
+            f"[bold]Capabilities:[/bold] {', '.join(capabilities)}\n"
+            f"[bold]Model:[/bold] {selected_model}",
+            title="[bold green]Agent Configuration[/bold green]",
+            border_style="green"
+        )
+        console.print("\n", config_panel)
+
+        # Ask to save
+        if Confirm.ask("\n[bold]Save this agent?[/bold]"):
+            # Save as JSON config
+            config_file = Path(f"{agent_name.lower().replace(' ', '_')}_config.json")
+            with open(config_file, 'w') as f:
+                json.dump(agent_config, f, indent=2)
+            rprint(f"[green]✓[/green] Configuration saved to: {config_file}")
+
+            # Optionally export to .af format
+            if AGENTFILE_AVAILABLE and Confirm.ask("[bold]Export to .af format?[/bold]"):
+                serializer = AgentFileSerializer()
+                af_path = serializer.serialize(agent_config, f"{agent_name.lower().replace(' ', '_')}.af")
+                rprint(f"[green]✓[/green] Agent exported to: {af_path}")
+
+        rprint("\n[bold green]✨ Agent creation complete![/bold green]")
+
+    elif mode == "configure":
+        rprint("[yellow]Configuration mode - Coming soon![/yellow]")
+        rprint("This will allow you to modify existing agent configurations interactively.")
+
+    else:
+        rprint(f"[red]Unknown mode: {mode}[/red]")
+        rprint("Use --mode create or --mode configure")
+        raise typer.Exit(1)
+
+
+@app.command()
 def debug():
     """Show debug information for troubleshooting."""
-    
+
     rprint("[bold blue]AgentForge Debug Information[/bold blue]")
-    
+
     # Check imports
     rprint(f"\n[bold]Import Status:[/bold]")
-    
+
     imports_to_check = [
         ("typer", "typer"),
         ("rich", "rich"),
@@ -563,26 +915,26 @@ def debug():
         ("qdrant_client", "qdrant-client"),
         ("sentence_transformers", "sentence-transformers"),
     ]
-    
+
     for module_name, package_name in imports_to_check:
         try:
             __import__(module_name)
             rprint(f"  ✓ {package_name}")
         except ImportError as e:
             rprint(f"  ✗ {package_name}: {e}")
-    
+
     # Check agent modules
     rprint(f"\n[bold]Agent Modules:[/bold]")
-    
+
     module_status = {
         "Base Classes": AGENT_BASE_AVAILABLE,
         "Systems Analyst": SYSTEMS_ANALYST_AVAILABLE,
         "Naming Strategies": NAMING_STRATEGIES_AVAILABLE,
     }
-    
+
     for module, available in module_status.items():
         rprint(f"  {'✓' if available else '✗'} {module}")
-    
+
     # Check paths
     rprint(f"\n[bold]Path Status:[/bold]")
     paths_to_check = [
@@ -590,7 +942,7 @@ def debug():
         ("Agents Path", Path(CONFIG["default_agents_path"])),
         ("Teams Path", Path(CONFIG["default_teams_path"]))
     ]
-    
+
     for name, path in paths_to_check:
         rprint(f"  {name}: {'✓' if path.exists() else '✗'} {path}")
 
