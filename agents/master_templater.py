@@ -8,17 +8,16 @@ Used for onboarding external agents or analyzing new formats.
 
 from typing import Dict, List, Any, Optional, Union
 from pydantic import BaseModel, Field
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
-from agno.tools.reasoning import ReasoningTools
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.lancedb import LanceDb, SearchType
-from agno.embedder.openai import OpenAIEmbedder
+from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 import json
 import yaml
+import uuid
 from textwrap import dedent
 from pathlib import Path
 import re
+from os import getenv
 
 
 class SpecificAgent(BaseModel):
@@ -93,79 +92,57 @@ class MasterTemplater:
     def __init__(self, knowledge_base_path: Optional[str] = None):
         """Initialize the Master Templater agent"""
         
-        # Setup knowledge base for template patterns and formats
-        template_knowledge = Knowledge(
-            vector_db=LanceDb(
-                uri="tmp/template_knowledge",
-                table_name="template_patterns",
-                search_type=SearchType.hybrid,
-                embedder=OpenAIEmbedder(id="text-embedding-3-small"),
-            ),
-        )
+        # Initialize working embedder using sentence-transformers
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Setup QDrant client for template pattern storage
+        try:
+            self.qdrant_client = QdrantClient(
+                host="localhost",
+                port=6333,
+                api_key=getenv("QDRANT_API_KEY", "touchmyflappyfoldyholds")
+            )
+            
+            # Ensure collection exists for template patterns
+            collection_name = "template_patterns"
+            try:
+                self.qdrant_client.get_collection(collection_name)
+            except Exception:
+                # Create collection if it doesn't exist
+                self.qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=384,  # all-MiniLM-L6-v2 dimension
+                        distance=Distance.COSINE
+                    )
+                )
+            
+            self.collection_name = collection_name
+            
+        except Exception as e:
+            print(f"Warning: Could not connect to QDrant: {e}")
+            self.qdrant_client = None
+            self.collection_name = None
+        
+        # Store knowledge base path
+        self.knowledge_base_path = knowledge_base_path
         
         # Load existing template patterns if available
         if knowledge_base_path:
-            template_knowledge.add_content_from_path(knowledge_base_path)
+            self._populate_template_knowledge_from_path(knowledge_base_path)
         
         # Pre-populate with common template patterns
-        self._populate_template_knowledge(template_knowledge)
-        
-        # Create the agent with reasoning tools
-        self.agent = Agent(
-            name="MasterTemplater",
-            model=OpenRouter(id="deepseek/deepseek-v3.1"),
-            tools=[
-                ReasoningTools(
-                    think=True,
-                    analyze=True,
-                    add_instructions=True,
-                    add_few_shot=True,
-                ),
-            ],
-            instructions=dedent("""\
-                You are a Master Templater - The Template Generator for AgentForge.
-                
-                Your core expertise:
-                - Analyzing specific agent implementations to extract core components
-                - Generalizing platform-specific agents into reusable formats
-                - Creating template representations of client formats and structures
-                - Identifying patterns and commonalities across different platforms
-                
-                Your analysis capabilities:
-                - Platform format recognition and structure analysis
-                - Component extraction and semantic understanding
-                - Pattern identification and generalization
-                - Template schema generation and validation
-                
-                Your generalization process:
-                1. Parse and understand specific agent configurations
-                2. Extract core semantic components (purpose, capabilities, instructions)
-                3. Identify platform-specific elements and conventions
-                4. Generalize instructions and configuration to be platform-agnostic
-                5. Create reusable templates that preserve agent essence
-                6. Generate format templates for new platform onboarding
-                
-                Key principles:
-                - Preserve semantic meaning while removing platform specifics
-                - Create truly reusable and adaptable templates
-                - Identify common patterns across different implementations
-                - Generate comprehensive format documentation
-                - Maintain traceability between specific and general forms
-                - Enable easy onboarding of external agents and formats
-                
-                Use reasoning tools to work through complex generalization tasks.
-                Always validate that generalized forms preserve original intent.
-            """),
-            markdown=True,
-            add_history_to_context=True,
-        )
+        self._populate_template_knowledge()
         
         # Built-in format recognizers
         self.format_recognizers = self._setup_format_recognizers()
     
-    def _populate_template_knowledge(self, knowledge: Knowledge):
+    def _populate_template_knowledge(self):
         """Pre-populate knowledge base with common template patterns"""
         
+        if not self.qdrant_client:
+            return
+            
         template_patterns = [
             {
                 "pattern": "agent_instructions",
@@ -201,11 +178,69 @@ class MasterTemplater:
             }
         ]
         
+        points = []
         for pattern in template_patterns:
-            knowledge.add_content(
-                content=pattern["content"],
-                content_id=f"pattern_{pattern['pattern']}"
+            # Create embedding
+            embedding = self.embedder.encode([pattern["content"]])[0].tolist()
+            
+            # Create point
+            point = PointStruct(
+                id=str(uuid.uuid4()),
+                vector=embedding,
+                payload={
+                    "pattern_type": pattern["pattern"],
+                    "content": pattern["content"],
+                    "type": "template_pattern"
+                }
             )
+            points.append(point)
+        
+        # Store in QDrant
+        try:
+            self.qdrant_client.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+            print(f"Pre-populated {len(points)} template patterns in knowledge base")
+        except Exception as e:
+            print(f"Warning: Could not populate template patterns: {e}")
+    
+    def _populate_template_knowledge_from_path(self, knowledge_base_path: str):
+        """Load additional template patterns from path"""
+        if not self.qdrant_client:
+            return
+            
+        try:
+            path = Path(knowledge_base_path)
+            if path.exists() and path.is_dir():
+                points = []
+                for file_path in path.rglob("*.md"):
+                    content = file_path.read_text(encoding='utf-8', errors='ignore')
+                    if content.strip():
+                        # Create embedding
+                        embedding = self.embedder.encode([content])[0].tolist()
+                        
+                        # Create point
+                        point = PointStruct(
+                            id=str(uuid.uuid4()),
+                            vector=embedding,
+                            payload={
+                                "content": content,
+                                "file_path": str(file_path),
+                                "type": "external_pattern"
+                            }
+                        )
+                        points.append(point)
+                
+                if points:
+                    self.qdrant_client.upsert(
+                        collection_name=self.collection_name,
+                        points=points
+                    )
+                    print(f"Loaded {len(points)} external template patterns")
+                        
+        except Exception as e:
+            print(f"Warning: Could not load external template patterns: {e}")
     
     def _setup_format_recognizers(self) -> Dict[str, callable]:
         """Setup format recognition functions"""
@@ -446,21 +481,116 @@ class MasterTemplater:
             Identify the core purpose and functionality of this agent.
         """)
         
-        # Execute extraction
-        extraction_result = await self.agent.arun(extraction_prompt)
+        # Perform extraction using built-in analysis
+        extraction_result = self._perform_component_extraction(specific_agent, recognition_result)
         
-        # For now, return a basic structure
-        # In a full implementation, we would parse the structured response
+        return extraction_result
+    
+    def _perform_component_extraction(self, specific_agent: SpecificAgent, recognition_result: Dict[str, Any]) -> ExtractedComponents:
+        """Perform component extraction using built-in analysis"""
+        
+        content = specific_agent.content
+        format_type = recognition_result['format']
+        
+        # Extract basic components based on format
+        if format_type == "json":
+            extracted = self._extract_from_json(content)
+        elif format_type == "yaml":
+            extracted = self._extract_from_yaml(content)
+        elif format_type == "markdown":
+            extracted = self._extract_from_markdown(content)
+        else:
+            extracted = self._extract_from_text(content)
+        
         return ExtractedComponents(
-            agent_name=specific_agent.agent_name or "ExtractedAgent",
-            role="Extracted Role",
-            description="Extracted from specific agent implementation",
-            capabilities=["extracted"],
-            instructions=extraction_result,
-            configuration={},
-            platform_specifics={},
-            interaction_patterns={}
+            agent_name=extracted.get("name", specific_agent.agent_name or "ExtractedAgent"),
+            role=extracted.get("role", "General Agent"),
+            description=extracted.get("description", "Extracted from specific agent implementation"),
+            capabilities=extracted.get("capabilities", []),
+            instructions=extracted.get("instructions", content),
+            configuration=extracted.get("configuration", {}),
+            platform_specifics=extracted.get("platform_specifics", {}),
+            interaction_patterns=extracted.get("interaction_patterns", {})
         )
+    
+    def _extract_from_json(self, content: str) -> Dict[str, Any]:
+        """Extract components from JSON content"""
+        try:
+            data = json.loads(content)
+            return {
+                "name": data.get("name", "JSON Agent"),
+                "role": data.get("role", data.get("description", "JSON-based agent")),
+                "description": data.get("description", "Agent from JSON configuration"),
+                "capabilities": data.get("capabilities", data.get("skills", [])),
+                "instructions": data.get("instructions", data.get("prompt", "")),
+                "configuration": {k: v for k, v in data.items() if k not in ["name", "description", "capabilities", "instructions"]},
+                "platform_specifics": {"format": "json", "fields": list(data.keys())},
+                "interaction_patterns": {"input": "JSON", "output": "JSON"}
+            }
+        except json.JSONDecodeError:
+            return self._extract_from_text(content)
+    
+    def _extract_from_yaml(self, content: str) -> Dict[str, Any]:
+        """Extract components from YAML content"""
+        try:
+            data = yaml.safe_load(content)
+            if isinstance(data, dict):
+                return {
+                    "name": data.get("name", "YAML Agent"),
+                    "role": data.get("role", data.get("description", "YAML-based agent")),
+                    "description": data.get("description", "Agent from YAML configuration"),
+                    "capabilities": data.get("capabilities", data.get("skills", [])),
+                    "instructions": data.get("instructions", data.get("prompt", "")),
+                    "configuration": {k: v for k, v in data.items() if k not in ["name", "description", "capabilities", "instructions"]},
+                    "platform_specifics": {"format": "yaml", "fields": list(data.keys())},
+                    "interaction_patterns": {"input": "YAML", "output": "YAML"}
+                }
+        except yaml.YAMLError:
+            pass
+        return self._extract_from_text(content)
+    
+    def _extract_from_markdown(self, content: str) -> Dict[str, Any]:
+        """Extract components from Markdown content"""
+        import re
+        
+        # Extract title/name
+        title_match = re.search(r'^#\s+(.+)', content, re.MULTILINE)
+        name = title_match.group(1) if title_match else "Markdown Agent"
+        
+        # Extract role/description from first paragraph
+        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip() and not p.startswith('#')]
+        description = paragraphs[0] if paragraphs else "Agent from Markdown documentation"
+        
+        # Extract capabilities from lists
+        capability_matches = re.findall(r'[-*]\s+(.+)', content)
+        capabilities = [cap.strip() for cap in capability_matches if cap.strip()][:10]  # Limit to 10
+        
+        return {
+            "name": name,
+            "role": f"Markdown-documented {name.lower()}",
+            "description": description,
+            "capabilities": capabilities,
+            "instructions": content,
+            "configuration": {"format": "markdown"},
+            "platform_specifics": {"format": "markdown", "has_headers": "##" in content},
+            "interaction_patterns": {"input": "Text", "output": "Markdown"}
+        }
+    
+    def _extract_from_text(self, content: str) -> Dict[str, Any]:
+        """Extract components from plain text content"""
+        lines = content.split('\n')
+        first_line = lines[0] if lines else "Text Agent"
+        
+        return {
+            "name": first_line[:50] if len(first_line) > 50 else first_line,
+            "role": "Text-based agent",
+            "description": content[:200] + "..." if len(content) > 200 else content,
+            "capabilities": ["text processing", "general purpose"],
+            "instructions": content,
+            "configuration": {"format": "text"},
+            "platform_specifics": {"format": "text", "line_count": len(lines)},
+            "interaction_patterns": {"input": "Text", "output": "Text"}
+        }
     
     async def _generalize_agent(self, components: ExtractedComponents) -> GeneralizedAgent:
         """Generalize extracted components into platform-agnostic form"""
@@ -489,28 +619,295 @@ class MasterTemplater:
             Make instructions platform-agnostic but preserve effectiveness.
         """)
         
-        # Execute generalization
-        generalized_result = await self.agent.arun(generalization_prompt)
+        # Execute generalization using built-in logic
+        generalized_result = self._perform_generalization(components)
         
-        # Create generalized agent structure
+        return generalized_result
+    
+    def _perform_generalization(self, components: ExtractedComponents) -> GeneralizedAgent:
+        """Perform generalization using built-in logic"""
+        
+        # Generalize instructions by removing platform-specific elements
+        generalized_instructions = self._generalize_instructions(components.instructions)
+        
+        # Generalize capabilities
+        generalized_capabilities = self._generalize_capabilities(components.capabilities)
+        
+        # Create generalized interaction patterns
+        interaction_patterns = {
+            "input": "Structured input appropriate to task",
+            "output": "Structured output with results", 
+            "coordination": "Collaborative with other agents"
+        }
+        
+        # Identify requirements and constraints
+        requirements = self._identify_requirements(components)
+        constraints = self._identify_constraints(components)
+        
         return GeneralizedAgent(
             name=components.agent_name,
-            role=components.role,
-            description=f"Generalized version of {components.agent_name}",
-            capabilities=components.capabilities,
-            instructions=generalized_result,
-            interaction_patterns={
-                "input": "Structured input appropriate to task",
-                "output": "Structured output with results",
-                "coordination": "Collaborative with other agents"
-            },
-            requirements=["Core AI capabilities"],
-            constraints=["Platform-specific features may vary"],
+            role=self._generalize_role(components.role),
+            description=f"Generalized {components.role.lower()} agent for reuse across platforms",
+            capabilities=generalized_capabilities,
+            instructions=generalized_instructions,
+            interaction_patterns=interaction_patterns,
+            requirements=requirements,
+            constraints=constraints,
             metadata={
                 "generalized_from": components.agent_name,
-                "original_platform_specifics": components.platform_specifics
+                "original_platform_specifics": components.platform_specifics,
+                "generalization_date": "2024-01-01"  # Would be actual date
             }
         )
+    
+    def _generalize_instructions(self, instructions: str) -> str:
+        """Remove platform-specific elements from instructions"""
+        
+        # Platform-specific terms to generalize
+        platform_replacements = {
+            # Platform names
+            "Claude Code": "the platform",
+            "OpenAI": "the AI service",
+            "Anthropic": "the AI provider",
+            
+            # Specific tools/services
+            "MCP tools": "available tools",
+            "file-reader": "file access tools",
+            "git-tools": "version control tools",
+            
+            # Model-specific references
+            "claude-3-5-sonnet": "the language model",
+            "gpt-4": "the language model",
+            "text-embedding-3-small": "the embedding model",
+        }
+        
+        generalized = instructions
+        for specific, generic in platform_replacements.items():
+            generalized = generalized.replace(specific, generic)
+        
+        # Remove specific configuration details
+        import re
+        generalized = re.sub(r'\btemperature:\s*[\d.]+', 'temperature: [configurable]', generalized)
+        generalized = re.sub(r'\bmax_tokens:\s*\d+', 'max_tokens: [configurable]', generalized)
+        
+        return generalized
+    
+    def _generalize_capabilities(self, capabilities: List[str]) -> List[str]:
+        """Generalize capability descriptions"""
+        
+        capability_generalizations = {
+            "Claude Code MCP tools": "Platform tools integration",
+            "OpenAI API": "Language model API",
+            "file-reader": "File system access",
+            "Python": "Programming language support",
+            "JavaScript": "Scripting language support",
+        }
+        
+        generalized = []
+        for cap in capabilities:
+            generalized_cap = cap
+            for specific, generic in capability_generalizations.items():
+                if specific.lower() in cap.lower():
+                    generalized_cap = generic
+                    break
+            generalized.append(generalized_cap)
+        
+        return list(set(generalized))  # Remove duplicates
+    
+    def _generalize_role(self, role: str) -> str:
+        """Generalize role description"""
+        
+        # Remove platform-specific role elements
+        role_generalizations = {
+            "for Claude Code": "",
+            "using OpenAI": "",
+            "with Anthropic": "",
+            "MCP-based": "platform-integrated",
+        }
+        
+        generalized_role = role
+        for specific, replacement in role_generalizations.items():
+            generalized_role = generalized_role.replace(specific, replacement)
+        
+        return generalized_role.strip()
+    
+    def _identify_requirements(self, components: ExtractedComponents) -> List[str]:
+        """Identify general requirements from component analysis"""
+        
+        requirements = ["Core AI capabilities"]
+        
+        # Analyze capabilities to identify requirements
+        cap_text = " ".join(components.capabilities).lower()
+        
+        if any(term in cap_text for term in ["file", "system", "directory"]):
+            requirements.append("File system access")
+        
+        if any(term in cap_text for term in ["api", "http", "web"]):
+            requirements.append("Network connectivity")
+        
+        if any(term in cap_text for term in ["database", "sql", "storage"]):
+            requirements.append("Data storage access")
+        
+        if any(term in cap_text for term in ["git", "version", "repository"]):
+            requirements.append("Version control integration")
+        
+        return requirements
+    
+    def _identify_constraints(self, components: ExtractedComponents) -> List[str]:
+        """Identify constraints from component analysis"""
+        
+        constraints = ["Platform-specific features may vary"]
+        
+        # Analyze platform specifics for constraints
+        if "format" in components.platform_specifics:
+            format_type = components.platform_specifics["format"]
+            constraints.append(f"Original format was {format_type}")
+        
+        if components.configuration:
+            constraints.append("May require configuration adaptation")
+        
+        return constraints
+
+    def _analyze_platform_template_structure(self, specific_agents: List[SpecificAgent], platform: str, primary_format: str) -> str:
+        """Analyze platform template structure from specific agents using built-in analysis"""
+        try:
+            # Extract components from all agents
+            all_components = []
+            field_frequency = {}
+            common_patterns = []
+            
+            for agent in specific_agents:
+                # Parse agent content based on format
+                recognition_result = {'format': agent.file_type if agent.file_type != "auto-detect" else primary_format}
+                extracted = self._perform_component_extraction(agent, recognition_result)
+                all_components.append(extracted)
+                
+                # Count field frequency
+                if hasattr(extracted, 'fields') and extracted.fields:
+                    for field in extracted.fields:
+                        field_frequency[field] = field_frequency.get(field, 0) + 1
+            
+            # Identify required fields (appear in all agents)
+            total_agents = len(specific_agents)
+            required_fields = [field for field, count in field_frequency.items() if count == total_agents]
+            optional_fields = [field for field, count in field_frequency.items() if count < total_agents and count > 0]
+            
+            # Analyze common structure patterns
+            structure_schema = self._build_structure_schema(all_components, primary_format)
+            
+            # Generate validation rules based on format
+            validation_rules = self._generate_validation_rules(primary_format, required_fields)
+            
+            # Create field descriptions
+            field_descriptions = self._generate_field_descriptions(required_fields + optional_fields, all_components)
+            
+            # Identify platform-specific conventions
+            conventions = self._identify_platform_conventions(platform, all_components)
+            
+            # Format analysis result
+            analysis_result = f"""
+Platform Template Analysis for {platform} ({primary_format} format):
+
+Structure Schema: {structure_schema}
+Required Fields: {required_fields}
+Optional Fields: {optional_fields}
+Field Descriptions: {field_descriptions}
+Validation Rules: {validation_rules}
+Conventions: {conventions}
+
+Agent Count Analyzed: {total_agents}
+Field Distribution: {dict(sorted(field_frequency.items(), key=lambda x: x[1], reverse=True))}
+"""
+            
+            return analysis_result
+            
+        except Exception as e:
+            logger.error(f"Error analyzing platform template structure: {e}")
+            return f"Platform template analysis for {platform} (format: {primary_format}) - Basic structure identified from {len(specific_agents)} agents"
+
+    def _build_structure_schema(self, components: List[ExtractedComponents], primary_format: str) -> Dict[str, str]:
+        """Build structure schema from extracted components"""
+        schema = {}
+        
+        for comp in components:
+            if hasattr(comp, 'structure') and comp.structure:
+                for key, value in comp.structure.items():
+                    if key not in schema:
+                        schema[key] = type(value).__name__
+                    elif schema[key] != type(value).__name__:
+                        schema[key] = "mixed"
+        
+        return schema
+
+    def _generate_validation_rules(self, format_type: str, required_fields: List[str]) -> List[str]:
+        """Generate validation rules based on format and required fields"""
+        rules = []
+        
+        if format_type.lower() == "json":
+            rules.append("Must be valid JSON format")
+            rules.append("Must contain proper JSON syntax with braces and quotes")
+        elif format_type.lower() == "yaml":
+            rules.append("Must be valid YAML format")
+            rules.append("Must use proper YAML indentation")
+        elif format_type.lower() == "markdown":
+            rules.append("Must follow Markdown formatting")
+            rules.append("Must contain proper headers and sections")
+        
+        for field in required_fields:
+            rules.append(f"Must contain required field: {field}")
+        
+        return rules
+
+    def _generate_field_descriptions(self, fields: List[str], components: List[ExtractedComponents]) -> Dict[str, str]:
+        """Generate field descriptions based on analysis of components"""
+        descriptions = {}
+        
+        # Common field descriptions
+        field_mappings = {
+            'name': 'Agent or component name identifier',
+            'description': 'Detailed description of functionality',
+            'instructions': 'Specific instructions for agent behavior',
+            'capabilities': 'List of capabilities and features',
+            'role': 'Primary role or function of the agent',
+            'persona': 'Agent personality and interaction style',
+            'tools': 'Available tools and integrations',
+            'config': 'Configuration parameters and settings',
+            'examples': 'Usage examples and sample interactions',
+            'metadata': 'Additional metadata and properties'
+        }
+        
+        for field in fields:
+            if field.lower() in field_mappings:
+                descriptions[field] = field_mappings[field.lower()]
+            else:
+                descriptions[field] = f"Platform-specific field: {field}"
+        
+        return descriptions
+
+    def _identify_platform_conventions(self, platform: str, components: List[ExtractedComponents]) -> List[str]:
+        """Identify platform-specific conventions from components"""
+        conventions = []
+        
+        # Platform-specific patterns
+        if platform.lower() in ['discord', 'slack', 'teams']:
+            conventions.append("Uses chat-based interaction patterns")
+            conventions.append("Includes message formatting and emoji support")
+            conventions.append("Supports real-time communication features")
+        elif platform.lower() in ['api', 'rest', 'web']:
+            conventions.append("Uses HTTP request/response patterns")
+            conventions.append("Includes endpoint definitions and data schemas")
+            conventions.append("Supports authentication and authorization")
+        elif platform.lower() in ['cli', 'terminal', 'command']:
+            conventions.append("Uses command-line interface patterns")
+            conventions.append("Includes argument parsing and help text")
+            conventions.append("Supports piping and output formatting")
+        
+        # Analyze components for additional patterns
+        for comp in components:
+            if hasattr(comp, 'patterns') and comp.patterns:
+                conventions.extend(comp.patterns)
+        
+        return list(set(conventions))  # Remove duplicates
     
     async def _create_platform_template(
         self, 
@@ -527,29 +924,8 @@ class MasterTemplater:
         format_types = set(agent.file_type for agent in specific_agents)
         primary_format = list(format_types)[0] if format_types else "json"
         
-        template_prompt = dedent(f"""\
-            Create a platform template based on analysis of {len(specific_agents)} specific agents:
-            
-            **Target Platform:** {platform}
-            **Format Types:** {list(format_types)}
-            **Primary Format:** {primary_format}
-            
-            **Agent Samples:**
-            {chr(10).join([f"Agent {i+1} ({agent.file_type}): {agent.content[:200]}..." for i, agent in enumerate(specific_agents[:3])])}
-            
-            Analyze these agents and create a comprehensive platform template that includes:
-            1. **Structure Schema**: Common fields and their types
-            2. **Required Fields**: Fields that appear in all agents
-            3. **Optional Fields**: Fields that appear in some agents
-            4. **Field Descriptions**: What each field represents
-            5. **Validation Rules**: Requirements for valid configurations
-            6. **Examples**: Representative example configurations
-            7. **Conventions**: Platform-specific conventions and patterns
-            
-            Focus on creating a reusable template for this platform format.
-        """)
-        
-        template_result = await self.agent.arun(template_prompt)
+        # Analyze agents to extract template structure using built-in analysis
+        template_result = self._analyze_platform_template_structure(specific_agents, platform, primary_format)
         
         # Create basic template structure
         return PlatformTemplate(

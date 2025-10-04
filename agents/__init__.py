@@ -15,7 +15,19 @@ And supporting utility agents:
 
 from .base import AgentForgeBase, AgentForgeInput, AgentForgeOutput
 from .systems_analyst import SystemsAnalyst, InputGoal, StrategyDocument
-from .agent_developer import AgentDeveloper, VacantRole, ScoutingReport, AgentSpecification, AgentGenerationResult
+from .talent_scout import (
+    TalentScout, 
+    TalentScoutInput, 
+    TalentScoutOutput,
+    ScoutingReport,
+    VacantRole,
+    AgentMatch,
+    AgentMetadata,
+    RoleRequirement,
+    QDrantManager,
+    AgentLibraryScanner
+)
+from .agent_developer import AgentDeveloper, AgentSpecification, AgentGenerationResult
 from .format_adaptation_expert import (
     FormatAdaptationExpert, 
     SourceAgent, 
@@ -45,9 +57,17 @@ __all__ = [
     "SystemsAnalyst",
     "InputGoal",
     "StrategyDocument",
-    "AgentDeveloper",
+    "TalentScout",
+    "TalentScoutInput",
+    "TalentScoutOutput",
+    "ScoutingReport",
     "VacantRole",
-    "ScoutingReport", 
+    "AgentMatch",
+    "AgentMetadata",
+    "RoleRequirement",
+    "QDrantManager",
+    "AgentLibraryScanner",
+    "AgentDeveloper",
     "AgentSpecification",
     "AgentGenerationResult",
     

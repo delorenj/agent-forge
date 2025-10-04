@@ -1,0 +1,65 @@
+{
+  "name": "agentforge-team",
+  "version": "1.0.0",
+  "description": "AgentForge Meta-Team MCP Server - Expose intelligent agent creation and orchestration as MCP tools",
+  "author": "AgentForge Team",
+  "license": "MIT",
+
+  "server": {
+    "command": "python",
+    "args": ["mcp_server/team_server.py"],
+    "env": {
+      "PYTHONPATH": ".",
+      "LOG_LEVEL": "INFO"
+    }
+  },
+
+  "tools": {
+    "agentforge_create_team": {
+      "enabled": true,
+      "description": "Full team creation workflow"
+    },
+    "agentforge_analyze_strategy": {
+      "enabled": true,
+      "description": "Strategic analysis with Systems Analyst"
+    },
+    "agentforge_scout_agents": {
+      "enabled": true,
+      "description": "Agent discovery with Talent Scout"
+    },
+    "agentforge_develop_agents": {
+      "enabled": true,
+      "description": "Create new agents with Agent Developer"
+    },
+    "agentforge_quick_agent": {
+      "enabled": true,
+      "description": "Quick single agent creation"
+    },
+    "agentforge_get_workflow_status": {
+      "enabled": true,
+      "description": "Get workflow status"
+    },
+    "agentforge_reindex_libraries": {
+      "enabled": true,
+      "description": "Reindex agent libraries"
+    }
+  },
+
+  "agent_libraries": [
+    "/home/delorenj/code/DeLoDocs/AI/Agents",
+    "/home/delorenj/code/DeLoDocs/AI/Teams"
+  ],
+
+  "qdrant": {
+    "host": "localhost",
+    "port": 6333,
+    "collection_name": "agent_embeddings",
+    "api_key": "touchmyflappyfoldyholds"
+  },
+
+  "models": {
+    "default": "deepseek/deepseek-v3.1",
+    "reasoning": "anthropic/claude-3-5-sonnet",
+    "embeddings": "all-MiniLM-L6-v2"
+  }
+}

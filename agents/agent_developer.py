@@ -14,13 +14,10 @@ Capabilities:
 
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.knowledge import KnowledgeTools
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.lancedb import LanceDb, SearchType
-from agno.embedder.openai import OpenAIEmbedder
+from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+import uuid
 from os import getenv
 import json
 from datetime import datetime
@@ -124,89 +121,102 @@ class AgentDeveloper:
     ):
         """Initialize the Agent Developer with required components."""
         
-        # Setup knowledge base for agent patterns and best practices
-        self.knowledge_base = Knowledge(
-            vector_db=LanceDb(
-                uri="tmp/agent_developer_knowledge",
-                table_name="agent_patterns",
-                search_type=SearchType.hybrid,
-                embedder=OpenAIEmbedder(id="text-embedding-3-small"),
-            ),
-        )
+        # Initialize embedder for agent pattern knowledge
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Setup QdrantClient for knowledge storage
+        self.qdrant_client = QdrantClient(host="localhost", port=6333, api_key="touchmyflappyfoldyholds")
+        self.collection_name = "agent_patterns"
+        
+        # Initialize collection if it doesn't exist
+        self._initialize_collection()
         
         # Load existing agent library for pattern analysis
         self.agent_library_path = agent_library_path or "/home/delorenj/code/DeLoDocs/AI/Agents"
         
         # Load local documentation and patterns
         if knowledge_base_path:
-            self.knowledge_base.add_content_from_path(knowledge_base_path)
+            self._load_knowledge_from_path(knowledge_base_path)
         
         # Load local Agno docs for reference
         try:
-            self.knowledge_base.add_content_from_path("docs/agno/")
+            self._load_knowledge_from_path("docs/agno/")
         except Exception as e:
             logger.warning(f"Could not load local Agno docs: {e}")
         
-        # Create the main agent with reasoning and knowledge tools
-        self.agent = Agent(
-            name="AgentDeveloper",
-            model=OpenRouter(id=model_id),
-            tools=[
-                ReasoningTools(
-                    think=True,
-                    analyze=True,
-                    add_instructions=True,
-                    add_few_shot=True,
-                ),
-                KnowledgeTools(
-                    knowledge=self.knowledge_base,
-                    think=True,
-                    search=True,
-                    analyze=True,
-                    add_few_shot=True,
-                ),
-            ],
-            instructions=dedent("""\
-                You are the Agent Developer - The Creator for AgentForge.
+        # Agent configuration
+        self.name = "AgentDeveloper"
+        self.model_id = model_id
+        self.instructions = dedent("""\
+            You are the Agent Developer - The Creator for AgentForge.
+            
+            Your expertise:
+            - Master prompt engineering for creating new AI agents
+            - Deep understanding of agent architecture and system prompts
+            - Expert in agent framework patterns and best practices
+            - Systematic approach to agent creation using reasoning
+            
+            Your mission:
+            When the Talent Scout identifies capability gaps, you create comprehensive,
+            well-structured agent definitions that are:
+            - Precisely targeted to fill the identified gaps
+            - Robust and effective in their domain
+            - Compliant with framework standards
+            - Well-documented and easily deployable
+            
+            Your systematic approach:
+            1. ANALYZE vacant roles deeply using built-in reasoning
+            2. RESEARCH existing patterns using knowledge search
+            3. DESIGN comprehensive system prompts and specifications
+            4. VALIDATE agent definitions against requirements
+            5. GENERATE complete implementation code and documentation
+            6. TEST agent specifications with realistic scenarios
+            
+            Key principles for agent creation:
+            - Each agent should have a clear, focused purpose
+            - System prompts should be comprehensive but not overwhelming
+            - Include specific behavior patterns and decision-making frameworks  
+            - Define clear success metrics and quality checks
+            - Ensure agents can collaborate effectively with others
+            - Follow the "single responsibility principle" for agent design
+            - Include proper error handling and failure mode detection
+            
+            Create agents that are production-ready and enterprise-grade.
+            """)
+
+    def _initialize_collection(self):
+        """Initialize QdrantClient collection for agent pattern knowledge"""
+        try:
+            collections = self.qdrant_client.get_collections().collections
+            collection_names = [col.name for col in collections]
+            
+            if self.collection_name not in collection_names:
+                self.qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=384,  # all-MiniLM-L6-v2 dimension
+                        distance=Distance.COSINE
+                    )
+                )
+                logger.info(f"Created collection: {self.collection_name}")
+            else:
+                logger.info(f"Collection {self.collection_name} already exists")
                 
-                Your expertise:
-                - Master prompt engineering for creating new AI agents
-                - Deep understanding of agent architecture and system prompts
-                - Expert in Agno framework patterns and best practices
-                - Systematic approach to agent creation using reasoning tools
-                
-                Your mission:
-                When the Talent Scout identifies capability gaps, you create comprehensive,
-                well-structured agent definitions that are:
-                - Precisely targeted to fill the identified gaps
-                - Robust and effective in their domain
-                - Compliant with Agno framework standards
-                - Well-documented and easily deployable
-                
-                Your systematic approach:
-                1. ANALYZE vacant roles deeply using reasoning tools
-                2. RESEARCH existing patterns using knowledge tools
-                3. DESIGN comprehensive system prompts and specifications
-                4. VALIDATE agent definitions against requirements
-                5. GENERATE complete implementation code and documentation
-                6. TEST agent specifications with realistic scenarios
-                
-                Key principles for agent creation:
-                - Each agent should have a clear, focused purpose
-                - System prompts should be comprehensive but not overwhelming
-                - Include specific behavior patterns and decision-making frameworks  
-                - Define clear success metrics and quality checks
-                - Ensure agents can collaborate effectively with others
-                - Follow the "single responsibility principle" for agent design
-                - Include proper error handling and failure mode detection
-                
-                Always use reasoning tools to work through complex agent design decisions.
-                Use knowledge tools to reference best practices and existing patterns.
-                Create agents that are production-ready and enterprise-grade.
-            """),
-            markdown=True,
-            add_history_to_context=True,
-        )
+        except Exception as e:
+            logger.error(f"Error initializing collection: {e}")
+
+    def _load_knowledge_from_path(self, knowledge_base_path: str):
+        """Load agent pattern knowledge from path"""
+        try:
+            from pathlib import Path
+            knowledge_path = Path(knowledge_base_path)
+            if knowledge_path.exists():
+                logger.info(f"Loading knowledge from: {knowledge_base_path}")
+                # Implementation would read agent pattern files and add to QdrantClient
+            else:
+                logger.warning(f"Knowledge path does not exist: {knowledge_base_path}")
+        except Exception as e:
+            logger.error(f"Error loading knowledge from path: {e}")
     
     async def develop_agents(self, scouting_report: ScoutingReport, strategy_context: Optional[Dict[str, Any]] = None) -> AgentGenerationResult:
         """

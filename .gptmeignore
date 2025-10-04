@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+.swarm/
+*.db
+*.db-wal
+*.db-shm
+.git/
+.venv/
+venv/

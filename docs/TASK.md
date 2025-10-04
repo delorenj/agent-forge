@@ -3,6 +3,10 @@
 **Main Goal**:
 Implement a CLI interface that passes the provided acceptance criteria
 
+Secondary Goals:
+  - Swap out lancedb for QDrant. I have a local instance of qdrant running on port 6333, api key is 'touchmyflappyfoldyholds'
+  - Implement the Talent Scout agent
+
 ## Test Inputs
 
 **Input 1**

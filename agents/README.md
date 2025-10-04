@@ -7,9 +7,11 @@ This directory contains the implementation of the AgentForge meta-team agents.
 **Location:** `systems_analyst.py`
 
 ### Purpose
+
 Expert in decomposing complex goals into discrete, manageable roles and capabilities. Defines the IDEAL team structure required to solve problems without regard for existing resources.
 
 ### Key Features
+
 - **Goal Decomposition**: Breaks down complex goals into component parts and dependencies
 - **Role Definition**: Creates detailed agent role specifications with responsibilities and capabilities
 - **Team Structure**: Defines optimal coordination patterns and communication protocols
@@ -20,6 +22,7 @@ Expert in decomposing complex goals into discrete, manageable roles and capabili
 ### Input/Output
 
 **Input:** `InputGoal` (Pydantic model)
+
 - `description`: High-level goal description
 - `context`: Additional context or constraints
 - `success_criteria`: How success will be measured
@@ -27,6 +30,7 @@ Expert in decomposing complex goals into discrete, manageable roles and capabili
 - `complexity`: Estimated complexity level
 
 **Output:** `StrategyDocument` (Pydantic model)
+
 - `goal_analysis`: Analysis of the input goal
 - `team_composition`: Required agent roles with detailed specs
 - `team_structure`: Team organization and coordination patterns
@@ -37,6 +41,7 @@ Expert in decomposing complex goals into discrete, manageable roles and capabili
 ### Usage Examples
 
 #### Basic Usage
+
 ```python
 from agents.systems_analyst import SystemsAnalyst, InputGoal
 
@@ -60,6 +65,7 @@ doc_path = analyst.create_strategy_document(strategy, "strategy.md")
 ```
 
 #### Quick Analysis
+
 ```python
 # For simple goals
 result = await analyst.quick_analysis("Create a blog website with user authentication")
@@ -91,6 +97,7 @@ The Systems Analyst leverages several Agno components:
 ### Configuration
 
 The agent can be configured with:
+
 - **Knowledge Base Path**: Local documentation to include
 - **Model Selection**: Different language models via OpenRouter
 - **Reasoning Depth**: How thorough the analysis should be
@@ -98,11 +105,13 @@ The agent can be configured with:
 ### Testing
 
 Run the test suite:
+
 ```bash
 python test_systems_analyst.py
 ```
 
 Run the demo:
+
 ```bash
 python demo_systems_analyst.py
 ```

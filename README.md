@@ -6,19 +6,19 @@
 [![Agno](https://img.shields.io/badge/Agno-2.0.2+-green.svg)](https://docs.agno.com)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## <¯ What is AgentForge?
+## <ï¿½ What is AgentForge?
 
 AgentForge is a **meta-agent system** - it creates other agent systems. Given a high-level goal, AgentForge:
 
 1. **Analyzes** the goal and determines what kind of team is needed
-2. **Scouts** existing agent libraries to find reusable agents  
+2. **Scouts** existing agent libraries to find reusable agents
 3. **Creates** new specialized agents to fill any gaps
 4. **Assembles** a complete, ready-to-deploy agent team
 5. **Documents** the team's operational playbook and deployment instructions
 
 Think of it as having a senior engineering manager who can instantly assemble the perfect team for any project.
 
-## <× The Meta-Team Architecture
+## <ï¿½ The Meta-Team Architecture
 
 AgentForge operates as a **5-agent meta-team** that collaborates to build other agent teams:
 
@@ -28,9 +28,9 @@ graph LR
     B --> C[Systems Analyst]
     C --> D[Talent Scout]
     D --> E[Agent Developer]
-    E --> F[Integration Architect] 
+    E --> F[Integration Architect]
     F --> G[Ready Team]
-    
+
     style B fill:#f9f,stroke:#333,stroke-width:2px
     style C fill:#bbf,stroke:#333,stroke-width:2px
     style D fill:#bbf,stroke:#333,stroke-width:2px
@@ -40,12 +40,12 @@ graph LR
 
 ### The Meta-Team Roles
 
-1. **<¯ Engineering Manager** (Orchestrator)
+1. **<ï¿½ Engineering Manager** (Orchestrator)
    - Central coordinator and workflow orchestrator
    - Manages the complete meta-team workflow
    - Packages final deliverables
 
-2. **=Ê Systems Analyst** (Strategist)  
+2. **=ï¿½ Systems Analyst** (Strategist)
    - Decomposes complex goals into discrete capabilities
    - Defines ideal team structures and roles
    - Creates comprehensive strategy documents
@@ -55,29 +55,30 @@ graph LR
    - Performs semantic matching of capabilities
    - Identifies gaps that need new agents
 
-4. **=à Agent Developer** (Creator)
+4. **=ï¿½ Agent Developer** (Creator)
    - Creates new specialized agents for identified gaps
    - Masters prompt engineering and agent design
    - Ensures agents follow best practices and standards
 
-5. **<× Integration Architect** (Coordinator)
+5. **<ï¿½ Integration Architect** (Coordinator)
    - Assembles final teams from existing and new agents
    - Defines operational workflows and communication protocols
    - Creates comprehensive deployment documentation
 
-## =€ Quick Start
+## =ï¿½ Quick Start
 
 ### Prerequisites
 
 - Python 3.12+
 - OpenAI API key (or other LLM provider)
+- QDrant vector database (for Talent Scout)
 - Optional: MCP API key for advanced features
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/agent-forge.git
+git clone https://github.com/delorenj/agent-forge.git
 cd agent-forge
 
 # Install dependencies
@@ -88,21 +89,58 @@ cp .env.example .env
 # Edit .env with your API keys
 ```
 
-### Basic Usage
+### Usage Options
 
-#### Interactive Mode
+#### ðŸš€ Option 1: MCP Server (Recommended for Claude Code/Cline)
+
+**Use AgentForge as MCP tools in Claude Code, Cline, or any MCP-compatible client!**
+
+```bash
+# One-time setup
+./mcp_server/setup.sh
+
+# Add to Claude Code config:
+# ~/Library/Application Support/Claude/claude_desktop_config.json (macOS)
+{
+  "mcpServers": {
+    "agentforge-team": {
+      "command": "python3",
+      "args": ["/path/to/agent-forge/mcp_server/team_server.py"],
+      "env": {"PYTHONPATH": "/path/to/agent-forge"}
+    }
+  }
+}
+
+# Then in Claude Code:
+"Create a team to build a real-time chat application"
+```
+
+**Available MCP Tools:**
+- `agentforge_create_team` - Full team creation workflow
+- `agentforge_analyze_strategy` - Strategic analysis (Systems Analyst)
+- `agentforge_scout_agents` - Agent discovery (Talent Scout)
+- `agentforge_develop_agents` - Create new agents (Agent Developer)
+- `agentforge_quick_agent` - Quick single agent creation
+- `agentforge_get_workflow_status` - Workflow monitoring
+- `agentforge_reindex_libraries` - Refresh agent index
+
+ðŸ“š **[Full MCP Server Guide](docs/MCP_SERVER_GUIDE.md)** | **[Usage Examples](examples/mcp_usage_examples.md)**
+
+#### ðŸ“ Option 2: Interactive Mode
+
 ```bash
 python main.py
 ```
 
-#### Programmatic Usage
+#### ðŸ’» Option 3: Programmatic Usage
+
 ```python
 from agents.engineering_manager import EngineeringManager, InputGoal
 
 # Create a goal
 goal = InputGoal(
     goal_description="Build a customer support chatbot with AI capabilities",
-    domain="customer service", 
+    domain="customer service",
     complexity_level="medium",
     constraints=["Must integrate with existing CRM", "24/7 availability"],
     success_criteria=["Handle 80% of queries automatically", "Response time < 30 seconds"]
@@ -117,40 +155,46 @@ print(f"Documentation: {result.roster_documentation}")
 ```
 
 #### Example Goal
+
 ```bash
 # Run with example goal
 python main.py --example
 ```
 
-## =Ë Key Features
+## =ï¿½ Key Features
 
 ### ( Intelligent Agent Reuse
+
 - **Semantic Analysis**: Matches existing agents to required capabilities
 - **Pattern Recognition**: Identifies reusable patterns across domains
 - **Library Integration**: Scans configurable agent libraries
 - **Adaptation Recommendations**: Suggests modifications for better fit
 
-### >à Dynamic Agent Creation  
+### >ï¿½ Dynamic Agent Creation
+
 - **Gap Analysis**: Identifies missing capabilities in existing roster
 - **Specialized Generation**: Creates agents optimized for specific roles
 - **Best Practice Integration**: Follows established agent design patterns
 - **Quality Validation**: Ensures generated agents meet quality standards
 
 ### = Structured Workflows
+
 - **Deterministic Process**: Consistent, reliable team generation
 - **Quality Gates**: Validation at each step of the process
 - **Session Management**: Tracks progress and enables recovery
 - **Type Safety**: Full Pydantic validation for all data structures
 
-### =Ú Comprehensive Documentation
+### =ï¿½ Comprehensive Documentation
+
 - **Strategy Documents**: Detailed analysis and team composition
-- **Scouting Reports**: Agent matching analysis and gap identification  
+- **Scouting Reports**: Agent matching analysis and gap identification
 - **Roster Documentation**: Complete operational playbooks
 - **Deployment Guides**: Step-by-step deployment instructions
 
-## =à System Requirements
+## =ï¿½ System Requirements
 
 ### Core Dependencies
+
 ```toml
 agno = ">=2.0.2"           # Core agent framework
 fastapi = ">=0.116.1"       # API server (with standard extras)
@@ -163,6 +207,7 @@ pydantic = ">=2.0.0"       # Type validation
 ```
 
 ### Environment Configuration
+
 ```bash
 # Required
 OPENAI_API_KEY=your_openai_key
@@ -177,16 +222,18 @@ TEAMS_LIBRARY_PATH=/path/to/your/teams
 DATABASE_URL=sqlite:///agentforge.db
 ```
 
-## =Ö Documentation
+## =ï¿½ Documentation
 
 ### Core Documentation
+
 - [**System Architecture**](SYSTEM_ARCHITECTURE.md) - Detailed technical architecture
-- [**User Guide**](docs/USER_GUIDE.md) - Step-by-step usage instructions  
+- [**User Guide**](docs/USER_GUIDE.md) - Step-by-step usage instructions
 - [**Developer Guide**](docs/DEVELOPER_GUIDE.md) - Extending and customizing AgentForge
 - [**API Reference**](docs/API_REFERENCE.md) - Complete API documentation
 - [**Deployment Guide**](docs/DEPLOYMENT_GUIDE.md) - Production deployment instructions
 
 ### Agent Documentation
+
 - [**Engineering Manager**](agents/README.md#engineering-manager) - Central orchestrator
 - [**Systems Analyst**](agents/README.md#systems-analyst) - Goal analysis and strategy
 - [**Talent Scout**](agents/README.md#talent-scout) - Agent library management
@@ -194,28 +241,31 @@ DATABASE_URL=sqlite:///agentforge.db
 - [**Integration Architect**](agents/README.md#integration-architect) - Team assembly
 
 ### Framework Integration
+
 - [**Agno Integration**](docs/agno/) - Using Agno framework features
 - [**MCP Integration**](docs/MCP_INTEGRATION.md) - Model Context Protocol features
 - [**Knowledge Systems**](docs/KNOWLEDGE_SYSTEMS.md) - Vector databases and search
 
-## <® Usage Examples
+## <ï¿½ Usage Examples
 
 ### Example 1: Web Development Team
+
 ```python
 goal = InputGoal(
     goal_description="Create a full-stack e-commerce platform",
     domain="web development",
-    complexity_level="high", 
+    complexity_level="high",
     constraints=["React frontend", "Node.js backend", "PostgreSQL"],
     success_criteria=["User authentication", "Payment processing", "Admin dashboard"]
 )
 
 team = await em.process(goal)
-# Result: Frontend Developer, Backend Developer, Database Architect, 
+# Result: Frontend Developer, Backend Developer, Database Architect,
 #         Security Specialist, DevOps Engineer, QA Engineer
 ```
 
 ### Example 2: Data Science Pipeline
+
 ```python
 goal = InputGoal(
     goal_description="Build a customer churn prediction system",
@@ -225,12 +275,13 @@ goal = InputGoal(
     success_criteria=["85%+ accuracy", "Sub-100ms predictions", "Automated retraining"]
 )
 
-team = await em.process(goal)  
+team = await em.process(goal)
 # Result: Data Engineer, Feature Engineer, ML Engineer,
 #         Model Validator, Deployment Specialist
 ```
 
 ### Example 3: Content Creation System
+
 ```python
 goal = InputGoal(
     goal_description="Automated content generation and social media management",
@@ -248,6 +299,7 @@ team = await em.process(goal)
 ## =' Advanced Configuration
 
 ### Custom Agent Libraries
+
 ```python
 # Configure custom agent library paths
 em = EngineeringManager(
@@ -257,6 +309,7 @@ em = EngineeringManager(
 ```
 
 ### Model Selection
+
 ```python
 # Use different language models
 em = EngineeringManager(
@@ -267,8 +320,9 @@ em = EngineeringManager(
 ```
 
 ### Database Configuration
+
 ```python
-# Custom database configuration  
+# Custom database configuration
 em = EngineeringManager(
     db_file="custom_agentforge.db",
     # Or use PostgreSQL
@@ -276,9 +330,10 @@ em = EngineeringManager(
 )
 ```
 
-## >ê Testing
+## >ï¿½ Testing
 
 ### Run Tests
+
 ```bash
 # Run all tests
 python -m pytest
@@ -291,7 +346,8 @@ python test_agent_developer.py
 python test_integration_architect.py
 ```
 
-### Run Demos  
+### Run Demos
+
 ```bash
 # Individual agent demos
 python demo_systems_analyst.py
@@ -307,9 +363,10 @@ python main.py --example
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ### Development Setup
+
 ```bash
 # Clone and setup
-git clone https://github.com/your-org/agent-forge.git
+git clone https://github.com/delorenj/agent-forge.git
 cd agent-forge
 pip install -e ".[dev]"
 
@@ -322,13 +379,15 @@ black .
 ```
 
 ### Adding New Agents
+
 See [Developer Guide](docs/DEVELOPER_GUIDE.md) for details on:
+
 - Agent design patterns
-- Integration with the meta-team workflow  
+- Integration with the meta-team workflow
 - Testing and validation
 - Documentation standards
 
-## =Ê Performance & Scalability
+## =ï¿½ Performance & Scalability
 
 - **Processing Time**: Typically 30-120 seconds for complete team generation
 - **Agent Library**: Scales to thousands of existing agents
@@ -342,35 +401,38 @@ See [Developer Guide](docs/DEVELOPER_GUIDE.md) for details on:
 - **Generated Code Safety**: Validation of all generated agent code
 - **Access Control**: Role-based access to agent libraries
 
-## =ú Roadmap
+## =ï¿½ Roadmap
 
 ### Version 1.1 (Q2 2024)
+
 - [ ] Multi-modal agent support
 - [ ] Real-time collaboration features
 - [ ] Enhanced agent adaptation algorithms
 - [ ] Performance optimization and caching
 
-### Version 1.2 (Q3 2024)  
+### Version 1.2 (Q3 2024)
+
 - [ ] Agent marketplace integration
 - [ ] Version control for agent libraries
 - [ ] A/B testing for generated agents
 - [ ] Advanced monitoring and analytics
 
 ### Version 2.0 (Q4 2024)
+
 - [ ] Distributed agent execution
 - [ ] Advanced learning and adaptation
 - [ ] Plugin ecosystem
 - [ ] Enterprise features and deployment
 
-## =Ä License
+## =ï¿½ License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## <˜ Support
+## <ï¿½ Support
 
 - **Documentation**: [docs.agentforge.com](https://docs.agentforge.com)
-- **Issues**: [GitHub Issues](https://github.com/your-org/agent-forge/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/agent-forge/discussions)  
+- **Issues**: [GitHub Issues](https://github.com/delorenj/agent-forge/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/delorenj/agent-forge/discussions)
 - **Discord**: [AgentForge Community](https://discord.gg/agentforge)
 
 ## =O Acknowledgments

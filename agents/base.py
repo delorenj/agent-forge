@@ -27,7 +27,7 @@ class AgentForgeInput(BaseModel):
 
 class AgentForgeOutput(BaseModel):
     """Base output model for AgentForge agents."""
-    result: str
+    result: Any
     status: str
     metadata: Optional[Dict[str, Any]] = None
 
@@ -63,13 +63,13 @@ class AgentForgeBase(ABC):
     async def run_with_mcp(self, message: str, tools: Optional[list] = None) -> str:
         """Run agent with MCP tools for Agno documentation access (if available)."""
         if MCP_AVAILABLE and self.mcp_params and MCPTools:
-            async with MCPTools(self.mcp_params) as mcp_tools:
-                response = await self.agent.aprint_response(
-                    message, 
-                    stream=False,
-                    tools=[mcp_tools] + (tools or [])
-                )
-                return response
+            mcp_tools = MCPTools(self.mcp_params)
+            response = await self.agent.aprint_response(
+                message, 
+                stream=False,
+                tools=[mcp_tools] + (tools or [])
+            )
+            return response
         else:
             # Fallback to running without MCP tools
             response = await self.agent.aprint_response(

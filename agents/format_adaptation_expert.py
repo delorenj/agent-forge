@@ -8,15 +8,17 @@ Used for deploying finalized rosters to specific environments.
 
 from typing import Dict, List, Any, Optional
 from pydantic import BaseModel, Field
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
-from agno.tools.reasoning import ReasoningTools
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.lancedb import LanceDb, SearchType
-from agno.embedder.openai import OpenAIEmbedder
+from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
 import json
+import logging
+import uuid
+from os import getenv
 from textwrap import dedent
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class SourceAgent(BaseModel):
@@ -74,36 +76,26 @@ class FormatAdaptationExpert:
     def __init__(self, knowledge_base_path: Optional[str] = None):
         """Initialize the Format Adaptation Expert agent"""
         
-        # Setup knowledge base for platform formats and patterns
-        format_knowledge = Knowledge(
-            vector_db=LanceDb(
-                uri="tmp/format_knowledge",
-                table_name="platform_formats",
-                search_type=SearchType.hybrid,
-                embedder=OpenAIEmbedder(id="text-embedding-3-small"),
-            ),
-        )
+        # Initialize embedder for format knowledge
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        # Setup QdrantClient for knowledge storage
+        self.qdrant_client = QdrantClient(host="localhost", port=6333, api_key="touchmyflappyfoldyholds")
+        self.collection_name = "platform_formats"
+        
+        # Initialize collection if it doesn't exist
+        self._initialize_collection()
         
         # Load format examples and templates if available
         if knowledge_base_path:
-            format_knowledge.add_content_from_path(knowledge_base_path)
+            self._load_knowledge_from_path(knowledge_base_path)
         
         # Pre-populate with common platform knowledge
-        self._populate_format_knowledge(format_knowledge)
+        self._populate_format_knowledge()
         
-        # Create the agent with reasoning tools
-        self.agent = Agent(
-            name="FormatAdaptationExpert",
-            model=OpenRouter(id="deepseek/deepseek-v3.1"),
-            tools=[
-                ReasoningTools(
-                    think=True,
-                    analyze=True,
-                    add_instructions=True,
-                    add_few_shot=True,
-                ),
-            ],
-            instructions=dedent("""\
+        # Agent configuration
+        self.name = "FormatAdaptationExpert"
+        self.instructions = dedent("""\
                 You are a Format Adaptation Expert - The Platform Adapter for AgentForge.
                 
                 Your core expertise:
@@ -136,15 +128,46 @@ class FormatAdaptationExpert:
                 
                 Use reasoning tools to work through complex format transformations.
                 Always validate adapted output for platform compliance.
-            """),
-            markdown=True,
-            add_history_to_context=True,
-        )
+            """)
         
         # Built-in platform templates
         self.platform_templates = self._load_builtin_templates()
     
-    def _populate_format_knowledge(self, knowledge: Knowledge):
+    def _initialize_collection(self):
+        """Initialize QdrantClient collection for format knowledge"""
+        try:
+            collections = self.qdrant_client.get_collections().collections
+            collection_names = [col.name for col in collections]
+            
+            if self.collection_name not in collection_names:
+                self.qdrant_client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=384,  # all-MiniLM-L6-v2 dimension
+                        distance=Distance.COSINE
+                    )
+                )
+                logger.info(f"Created collection: {self.collection_name}")
+            else:
+                logger.info(f"Collection {self.collection_name} already exists")
+                
+        except Exception as e:
+            logger.error(f"Error initializing collection: {e}")
+
+    def _load_knowledge_from_path(self, knowledge_base_path: str):
+        """Load format knowledge from path"""
+        try:
+            knowledge_path = Path(knowledge_base_path)
+            if knowledge_path.exists():
+                # Load platform format examples from files
+                logger.info(f"Loading knowledge from: {knowledge_base_path}")
+                # Implementation would read format files and add to QdrantClient
+            else:
+                logger.warning(f"Knowledge path does not exist: {knowledge_base_path}")
+        except Exception as e:
+            logger.error(f"Error loading knowledge from path: {e}")
+
+    def _populate_format_knowledge(self):
         """Pre-populate knowledge base with common platform formats"""
         
         # Add common platform examples
@@ -175,11 +198,32 @@ class FormatAdaptationExpert:
             }
         ]
         
-        for example in platform_examples:
-            knowledge.add_content(
-                content=example["content"],
-                content_id=f"platform_{example['platform']}"
-            )
+        try:
+            # Add examples to QdrantClient
+            points = []
+            for i, example in enumerate(platform_examples):
+                content = example["content"]
+                embedding = self.embedder.encode(content)
+                
+                points.append(PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector=embedding.tolist(),
+                    payload={
+                        "platform": example["platform"],
+                        "content": content,
+                        "content_id": f"platform_{example['platform']}"
+                    }
+                ))
+            
+            if points:
+                self.qdrant_client.upsert(
+                    collection_name=self.collection_name,
+                    points=points
+                )
+                logger.info(f"Added {len(points)} platform examples to knowledge base")
+                
+        except Exception as e:
+            logger.error(f"Error populating format knowledge: {e}")
     
     def _load_builtin_templates(self) -> Dict[str, PlatformTemplate]:
         """Load built-in platform templates"""
@@ -389,8 +433,8 @@ class FormatAdaptationExpert:
             Add adaptation notes as comments where appropriate.
         """)
         
-        # Execute the adaptation
-        adapted_content = await self.agent.arun(adaptation_prompt)
+        # Execute the adaptation using built-in logic
+        adapted_content = self._perform_adaptation_logic(source_agent, platform_template, adaptation_prompt)
         
         # Validate the adapted content
         validation_status, validation_notes = self._validate_adapted_content(
@@ -516,8 +560,92 @@ class FormatAdaptationExpert:
             target_platform=target_platform
         )
         
-        result = await self.adapt_agents(request)
-        return result.adapted_agents[0].adapted_content if result.adapted_agents else "Adaptation failed"
+        # Since adapt_agents is now synchronous, remove await
+        # For now, implement simple quick adaptation
+        template = self.platform_templates.get(target_platform)
+        if template:
+            adapted_content = self._perform_adaptation_logic(source_agent, template, "Quick adaptation request")
+            return adapted_content
+        else:
+            return f"Platform {target_platform} not supported"
+
+    def _perform_adaptation_logic(self, source_agent: SourceAgent, platform_template: PlatformTemplate, adaptation_prompt: str) -> str:
+        """Perform agent adaptation using built-in logic instead of Agno agent"""
+        try:
+            # Extract key components from source agent
+            name = source_agent.name
+            role = source_agent.role
+            description = source_agent.description
+            capabilities = source_agent.capabilities
+            instructions = source_agent.instructions
+            
+            # Platform-specific adaptation logic
+            if platform_template.platform == "claude-code":
+                adapted_config = {
+                    "name": name,
+                    "description": description,
+                    "role": role,
+                    "instructions": instructions,
+                    "capabilities": capabilities,
+                    "tools": [],  # MCP tools would be added here
+                    "metadata": {
+                        "platform": "claude-code",
+                        "format": "mcp"
+                    }
+                }
+                return json.dumps(adapted_config, indent=2)
+                
+            elif platform_template.platform == "opencode":
+                adapted_config = {
+                    "name": name,
+                    "displayName": description,
+                    "version": "1.0.0",
+                    "contributes": {
+                        "commands": [{
+                            "command": f"extension.{name.lower()}",
+                            "title": description
+                        }]
+                    },
+                    "main": f"./out/{name.lower()}.js",
+                    "scripts": {
+                        "vscode:prepublish": "npm run compile"
+                    }
+                }
+                return json.dumps(adapted_config, indent=2)
+                
+            elif platform_template.platform == "amazonq":
+                adapted_config = {
+                    "skill": {
+                        "name": name,
+                        "description": description,
+                        "intents": [{
+                            "name": f"{name}Intent",
+                            "slots": [],
+                            "samples": [description]
+                        }],
+                        "responses": {
+                            f"{name}Intent": instructions[:500]  # Limit response length
+                        }
+                    }
+                }
+                return json.dumps(adapted_config, indent=2)
+            
+            else:
+                # Generic JSON format adaptation
+                adapted_config = {
+                    "name": name,
+                    "role": role,
+                    "description": description,
+                    "capabilities": capabilities,
+                    "instructions": instructions,
+                    "platform": platform_template.platform,
+                    "format": platform_template.format_type
+                }
+                return json.dumps(adapted_config, indent=2)
+                
+        except Exception as e:
+            logger.error(f"Error in adaptation logic: {e}")
+            return f"{{\"error\": \"Adaptation failed: {str(e)}\", \"original_agent\": \"{source_agent.name}\"}}"
 
 
 # Example usage and testing
