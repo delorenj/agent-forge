@@ -1,0 +1,33 @@
+{
+  "da95d237-911c-49ec-bdde-dd80cc15ef1e": {
+    "id": "da95d237-911c-49ec-bdde-dd80cc15ef1e",
+    "name": "DeLorenzo Home Team",
+    "description": "Family home automation and orchestration team",
+    "members": [
+      {
+        "agent_id": "b714a146-0b3c-41a9-b5ee-4f32cc6ef812",
+        "role_in_team": "Assistant",
+        "is_coordinator": true,
+        "dependencies": [],
+        "tools_exposed": [
+          "send_message",
+          "conversation_search"
+        ],
+        "config_overrides": {}
+      }
+    ],
+    "orchestration_type": "hierarchical",
+    "domain": "home-automation",
+    "tags": [],
+    "mcp_server_name": "delorenzo_home_team",
+    "mcp_tools_prefix": "delorenzo_home_team",
+    "expose_individual_agents": true,
+    "expose_team_coordinator": true,
+    "created_at": "2025-10-04 18:50:31.898302",
+    "updated_at": "2025-10-04 18:50:31.898306",
+    "created_by": "agentforge",
+    "version": "1.0.0",
+    "deployment_count": 0,
+    "last_deployed": null
+  }
+}

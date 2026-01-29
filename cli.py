@@ -21,6 +21,13 @@ import json
 from datetime import datetime
 import sys
 import importlib.util
+from utils.letta_gateway import (
+    LettaGatewayError,
+    extract_assistant_message,
+    resolve_base_url,
+    resolve_letta_agent_id,
+    send_message,
+)
 
 # Import agentfile serialization
 try:
@@ -754,9 +761,10 @@ def export(
 @app.command()
 def import_agent(
     file: str = typer.Argument(..., help="Path to .af file to import"),
-    output_dir: Optional[str] = typer.Option(None, "-o", "--output", help="Output directory for agent")
+    output_dir: Optional[str] = typer.Option(None, "-o", "--output", help="Output directory for agent"),
+    register: bool = typer.Option(True, "--register/--no-register", help="Register in agent pool")
 ):
-    """Import an agent from Letta agentfile (.af) format."""
+    """Import an agent from Letta agentfile (.af) format and register in pool."""
 
     if not AGENTFILE_AVAILABLE:
         rprint("[red]Error: AgentFile serialization not available. Check agentfile.py import.[/red]")
@@ -782,6 +790,31 @@ def import_agent(
         )
         console.print(info_panel)
 
+        # Register in agent pool
+        if register:
+            from core.agent_registry import AgentRegistry, AgentRegistryEntry, AgentSource, AgentStatus
+            import uuid
+
+            registry = AgentRegistry()
+            entry = AgentRegistryEntry(
+                id=str(uuid.uuid4()),
+                name=agent_config['name'],
+                source=AgentSource.LETTA_IMPORT,
+                file_path=str(file_path.absolute()),
+                storage_format="af",
+                description=agent_config['description'],
+                role=agent_config.get('metadata', {}).get('role', 'Assistant'),
+                capabilities=list(agent_config.get('memory', {}).keys()),
+                tools=[tool['name'] for tool in agent_config.get('tools', [])],
+                domain=agent_config.get('metadata', {}).get('domain', 'general'),
+                tags=agent_config.get('metadata', {}).get('tags', []),
+                llm_config={'model': agent_config['model']},
+                memory_blocks={k: str(v)[:100] for k, v in agent_config.get('memory', {}).items()},
+                status=AgentStatus.ACTIVE
+            )
+            agent_id = registry.register_agent(entry)
+            rprint(f"\n[green]✓[/green] Registered in agent pool: {agent_id}")
+
         # Save configuration
         if output_dir:
             output_path = Path(output_dir)
@@ -789,7 +822,7 @@ def import_agent(
             config_file = output_path / f"{agent_config['name'].lower()}_config.json"
             with open(config_file, 'w') as f:
                 json.dump(agent_config, f, indent=2)
-            rprint(f"\n[green]✓[/green] Configuration saved to: {config_file}")
+            rprint(f"[green]✓[/green] Configuration saved to: {config_file}")
 
     except Exception as e:
         rprint(f"[red]Error importing agent: {e}[/red]")
@@ -945,6 +978,272 @@ def debug():
 
     for name, path in paths_to_check:
         rprint(f"  {name}: {'✓' if path.exists() else '✗'} {path}")
+
+
+@app.command()
+def library(
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Show detailed information"),
+    source: Optional[str] = typer.Option(None, "--source", help="Filter by source type"),
+    domain: Optional[str] = typer.Option(None, "--domain", help="Filter by domain")
+):
+    """List all agents in the agent pool/library."""
+    from core.agent_registry import AgentRegistry, AgentSource
+
+    registry = AgentRegistry()
+
+    # Apply filters
+    source_filter = AgentSource(source) if source else None
+    agents = registry.find_agents(source=source_filter, domain=domain)
+
+    if not agents:
+        rprint("[yellow]No agents found in library[/yellow]")
+        return
+
+    # Create table
+    table = Table(title="🗂️  AgentForge Agent Library", show_header=True, header_style="bold magenta")
+    table.add_column("Name", style="cyan", width=25)
+    table.add_column("Role", style="green", width=20)
+    table.add_column("Source", style="yellow", width=15)
+    table.add_column("Domain", style="blue", width=15)
+
+    if verbose:
+        table.add_column("Tools", style="white", width=10)
+        table.add_column("Teams", style="magenta", width=10)
+
+    for agent in agents:
+        if verbose:
+            table.add_row(
+                agent.name,
+                agent.role,
+                agent.source.value,
+                agent.domain,
+                str(len(agent.tools)),
+                str(len(agent.team_memberships))
+            )
+        else:
+            table.add_row(
+                agent.name,
+                agent.role,
+                agent.source.value,
+                agent.domain
+            )
+
+    console.print(table)
+    
+    # Stats
+    stats = registry.get_stats()
+    rprint(f"\n[bold]Total:[/bold] {stats['total_agents']} agents")
+    rprint(f"[bold]Indexed:[/bold] {stats['indexed_count']} in QDrant")
+
+
+@app.command()
+def ask(
+    agent: str = typer.Argument(..., help="Agent registry ID or name"),
+    message: str = typer.Argument(..., help="Message to send"),
+    letta_agent_id: Optional[str] = typer.Option(
+        None, "--letta-agent-id", help="Override Letta agent ID"
+    ),
+    base_url: Optional[str] = typer.Option(
+        None, "--base-url", envvar="LETTA_BASE_URL", help="Letta base URL"
+    ),
+    token: Optional[str] = typer.Option(
+        None, "--token", envvar="LETTA_API_KEY", help="Letta API token"
+    ),
+    raw: bool = typer.Option(False, "--raw", help="Print raw response payload"),
+):
+    """Send a message to a Letta agent (registry ID or name)."""
+    from core.agent_registry import AgentRegistry, AgentSource
+
+    registry = AgentRegistry()
+    entry = registry.get_agent(agent)
+
+    if not entry:
+        matches = registry.find_agents(name=agent)
+        if not matches:
+            rprint(f"[red]Agent not found: {agent}[/red]")
+            raise typer.Exit(1)
+        if len(matches) > 1:
+            rprint("[red]Multiple agents match that name:[/red]")
+            for match in matches:
+                rprint(f"  - {match.name} ({match.id})")
+            raise typer.Exit(1)
+        entry = matches[0]
+
+    source_value = entry.source.value if hasattr(entry.source, "value") else str(entry.source)
+    if source_value != AgentSource.LETTA_IMPORT.value and not letta_agent_id:
+        rprint(
+            "[red]Agent is not a Letta import. Provide --letta-agent-id to override.[/red]"
+        )
+        raise typer.Exit(1)
+
+    try:
+        resolved_id = resolve_letta_agent_id(entry.source_metadata, letta_agent_id)
+        resolved_base_url = resolve_base_url(base_url, entry.source_metadata)
+        response = asyncio.run(
+            send_message(
+                agent_id=resolved_id,
+                message=message,
+                base_url=resolved_base_url,
+                token=token,
+            )
+        )
+    except LettaGatewayError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+    assistant = extract_assistant_message(response)
+    registry.update_usage(entry.id)
+
+    if assistant:
+        console.print(Panel(assistant, title=f"{entry.name}", border_style="green"))
+    else:
+        rprint("[yellow]No assistant message returned.[/yellow]")
+
+    if raw:
+        console.print(Syntax(json.dumps(response, indent=2), "json"))
+
+
+@app.command()
+def set_letta(
+    agent: str = typer.Argument(..., help="Agent registry ID or name"),
+    letta_agent_id: str = typer.Argument(..., help="Letta agent ID to persist"),
+    base_url: Optional[str] = typer.Option(
+        None, "--base-url", envvar="LETTA_BASE_URL", help="Letta base URL"
+    ),
+):
+    """Persist Letta metadata to the AgentForge registry."""
+    from core.agent_registry import AgentRegistry
+
+    registry = AgentRegistry()
+    entry = registry.get_agent(agent)
+
+    if not entry:
+        matches = registry.find_agents(name=agent)
+        if not matches:
+            rprint(f"[red]Agent not found: {agent}[/red]")
+            raise typer.Exit(1)
+        if len(matches) > 1:
+            rprint("[red]Multiple agents match that name:[/red]")
+            for match in matches:
+                rprint(f"  - {match.name} ({match.id})")
+            raise typer.Exit(1)
+        entry = matches[0]
+
+    if entry.source_metadata is None:
+        entry.source_metadata = {}
+
+    entry.source_metadata["letta_agent_id"] = letta_agent_id
+    if base_url:
+        entry.source_metadata["letta_base_url"] = base_url
+
+    registry.register_agent(entry)
+
+    rprint(f"[green]✓[/green] Updated Letta metadata for {entry.name}")
+    rprint(f"[dim]letta_agent_id={letta_agent_id}[/dim]")
+    if base_url:
+        rprint(f"[dim]letta_base_url={base_url}[/dim]")
+
+
+@app.command()
+def create_team(
+    name: str = typer.Argument(..., help="Team name"),
+    description: str = typer.Option(..., "--description", help="Team description"),
+    agents: List[str] = typer.Option([], "--agent", help="Agent names to include (repeat for multiple)"),
+    domain: str = typer.Option("general", "--domain", help="Team domain"),
+    orchestration: str = typer.Option("hierarchical", "--orchestration", help="Orchestration type"),
+    generate_server: bool = typer.Option(True, "--generate-server/--no-server", help="Generate MCP server")
+):
+    """Create a new team from existing agents."""
+    from core.agent_registry import AgentRegistry
+    from core.team_registry import TeamRegistry, TeamDefinition, TeamMemberRole, OrchestrationType
+
+    agent_registry = AgentRegistry()
+    team_registry = TeamRegistry()
+
+    # Find agents
+    members = []
+    for agent_name in agents:
+        found = agent_registry.find_agents(name=agent_name)
+        if not found:
+            rprint(f"[red]Agent not found: {agent_name}[/red]")
+            raise typer.Exit(1)
+
+        agent = found[0]
+        members.append(TeamMemberRole(
+            agent_id=agent.id,
+            role_in_team=agent.role,
+            is_coordinator=(len(members) == 0),  # First agent is coordinator
+            tools_exposed=agent.tools
+        ))
+
+    # Create team
+    team = TeamDefinition(
+        name=name,
+        description=description,
+        members=members,
+        orchestration_type=OrchestrationType(orchestration),
+        domain=domain,
+        mcp_server_name=name.lower().replace(" ", "_"),
+        mcp_tools_prefix=name.lower().replace(" ", "_")
+    )
+
+    team_id = team_registry.create_team(team)
+    rprint(f"[green]✓[/green] Created team: {name} ({team_id})")
+    rprint(f"[green]✓[/green] Team members: {len(members)}")
+
+    # Generate MCP server
+    if generate_server:
+        from core.mcp_server_factory import MCPServerFactory
+
+        factory = MCPServerFactory(agent_registry, team_registry)
+        server_path = factory.generate_server(team_id)
+        rprint(f"[green]✓[/green] Generated MCP server: {server_path}")
+        rprint(f"\n[bold cyan]To use this server:[/bold cyan]")
+        rprint(f'Add to your MCP config:\n{{\n  "{team.mcp_server_name}": {{\n    "command": "python3",\n    "args": ["{server_path.absolute()}"]\n  }}\n}}')
+
+
+@app.command()
+def list_teams(
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="Show detailed information")
+):
+    """List all teams."""
+    from core.team_registry import TeamRegistry
+
+    team_registry = TeamRegistry()
+    teams = team_registry.list_all_teams()
+
+    if not teams:
+        rprint("[yellow]No teams found[/yellow]")
+        return
+
+    table = Table(title="👥 AgentForge Teams", show_header=True, header_style="bold magenta")
+    table.add_column("Name", style="cyan", width=25)
+    table.add_column("Members", style="green", width=10)
+    table.add_column("Orchestration", style="yellow", width=15)
+    table.add_column("Domain", style="blue", width=15)
+
+    if verbose:
+        table.add_column("Deployments", style="magenta", width=12)
+
+    for team in teams:
+        if verbose:
+            table.add_row(
+                team.name,
+                str(len(team.members)),
+                team.orchestration_type.value,
+                team.domain,
+                str(team.deployment_count)
+            )
+        else:
+            table.add_row(
+                team.name,
+                str(len(team.members)),
+                team.orchestration_type.value,
+                team.domain
+            )
+
+    console.print(table)
+    rprint(f"\n[bold]Total:[/bold] {len(teams)} teams")
 
 
 if __name__ == "__main__":
